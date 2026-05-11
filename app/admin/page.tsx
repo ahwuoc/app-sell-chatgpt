@@ -9,6 +9,8 @@ import {
 import { SubmitButton } from "../submit-button";
 import { ImportModal } from "@/components/import-modal";
 import { MessagesModal } from "@/components/messages-modal";
+import { UpdateStatusSelect } from "@/components/update-status-select";
+import { UpdateSaleStatusButton } from "@/components/update-sale-status-button";
 import { requireAdmin } from "@/lib/auth";
 import {
   countSellableAccounts,
@@ -276,57 +278,33 @@ export default async function AdminPage(props: {
                             </div>
                           </TableCell>
                           <TableCell className="px-6 py-4">
-                            <form action={updateAccountStatusAction} className="flex items-center gap-1.5">
-                              <input type="hidden" name="id" value={account.id} />
-                              <div className="relative group">
-                                <select
-                                  name="status"
-                                  defaultValue={account.status}
-                                  className={`h-9 min-w-[110px] appearance-none rounded-lg border px-3 text-xs font-bold outline-none transition-all pr-8 ${account.status === 'not-registered'
-                                    ? 'border-blue-200 bg-blue-50 text-blue-700'
-                                    : account.status === 'reg-success'
-                                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                      : 'border-red-200 bg-red-50 text-red-700'
-                                    }`}
-                                >
-                                  <option value="not-registered">Chưa reg</option>
-                                  <option value="reg-success">Thành công</option>
-                                  <option value="reg-failed">Thất bại</option>
-                                </select>
-                                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
-                                  <TrendingUp className="h-3 w-3 opacity-50" />
-                                </div>
-                              </div>
-                              <SubmitButton className="h-9 px-3 text-xs bg-slate-900 hover:bg-slate-800">Cập nhật</SubmitButton>
-                            </form>
+                            <UpdateStatusSelect
+                              id={account.id}
+                              currentStatus={account.status}
+                              email={account.email}
+                            />
                           </TableCell>
                           <TableCell className="px-6 py-4">
                             <div className="flex flex-col gap-2">
                               <Badge
-                                variant={account.saleStatus === 'sold' ? 'outline' : account.saleStatus === 'available' ? 'default' : 'secondary'}
-                                className={`w-fit font-bold ${account.saleStatus === 'available' ? 'bg-emerald-500 text-white border-none' : ''}`}
+                                variant={account.saleStatus === 'sold' ? 'outline' : (account.saleStatus === 'available' && account.status === 'reg-success') ? 'default' : 'secondary'}
+                                className={`w-fit font-bold ${(account.saleStatus === 'available' && account.status === 'reg-success') ? 'bg-emerald-500 text-white border-none' : ''}`}
                               >
-                                {account.saleStatus === 'sold' ? 'Đã bán' : account.saleStatus === 'available' ? 'Đang bán' : 'Tạm dừng'}
+                                {account.saleStatus === 'sold'
+                                  ? 'Đã bán'
+                                  : account.status !== 'reg-success'
+                                    ? 'Chờ Reg'
+                                    : account.saleStatus === 'available'
+                                      ? 'Đang bán'
+                                      : 'Tạm dừng'}
                               </Badge>
 
-                              {account.saleStatus !== 'sold' && (
-                                <form action={updateAccountSaleStatusAction}>
-                                  <input type="hidden" name="id" value={account.id} />
-                                  <input
-                                    type="hidden"
-                                    name="saleStatus"
-                                    value={account.saleStatus === 'available' ? 'reserved' : 'available'}
-                                  />
-                                  <button
-                                    type="submit"
-                                    className={`text-[10px] font-bold underline decoration-dotted underline-offset-4 transition-all hover:decoration-solid ${account.saleStatus === 'available'
-                                      ? 'text-amber-600'
-                                      : 'text-emerald-600'
-                                      }`}
-                                  >
-                                    {account.saleStatus === 'available' ? 'Tạm ngừng bán' : 'Mở bán ngay'}
-                                  </button>
-                                </form>
+                              {account.saleStatus !== 'sold' && account.status === 'reg-success' && (
+                                <UpdateSaleStatusButton
+                                  id={account.id}
+                                  currentSaleStatus={account.saleStatus}
+                                  email={account.email}
+                                />
                               )}
                             </div>
                           </TableCell>

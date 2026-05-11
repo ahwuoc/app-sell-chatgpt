@@ -14,6 +14,8 @@ import {
 import { updateBalanceAction, updateUserRoleAction } from "@/app/actions";
 import { SubmitButton } from "@/app/submit-button";
 import { DeleteUserButton } from "@/components/delete-user-button";
+import { UpdateBalanceForm } from "@/components/update-balance-form";
+import { UpdateRoleSelect } from "@/components/update-role-select";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -221,46 +223,11 @@ export default async function AdminUsersPage() {
                       <TableCell className="px-6 py-5">
                         <div className="flex flex-col gap-3 max-w-[280px]">
                           {/* Balance Update Form */}
-                          <form action={updateBalanceAction} className="flex gap-1">
-                            <input type="hidden" name="username" value={user.username} />
-                            <select
-                              name="type"
-                              className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-1 text-[10px] font-bold outline-none focus:ring-2 focus:ring-slate-100 cursor-pointer"
-                              defaultValue="add"
-                            >
-                              <option value="add">Cộng (+)</option>
-                              <option value="subtract">Trừ (-)</option>
-                              <option value="set">Đặt (Set)</option>
-                            </select>
-                            <div className="relative flex-1">
-                              <Wallet className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                              <input
-                                type="number"
-                                name="balance"
-                                placeholder="Số tiền..."
-                                className="h-8 w-full rounded-lg border border-slate-200 pl-8 pr-2 text-[11px] outline-none transition-all focus:ring-2 focus:ring-slate-100 bg-white"
-                                required
-                              />
-                            </div>
-                            <SubmitButton className="h-8 rounded-lg bg-slate-900 px-3 text-[10px] font-bold">Lưu</SubmitButton>
-                          </form>
+                          <UpdateBalanceForm username={user.username} currentBalance={user.balance || 0} />
 
                           {/* Role and Delete row */}
                           <div className="flex items-center gap-2">
-                            <form action={updateUserRoleAction} className="flex flex-1 gap-2">
-                              <input type="hidden" name="username" value={user.username} />
-                              <select
-                                name="role"
-                                defaultValue={user.role || "user"}
-                                className="h-8 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium outline-none focus:ring-2 focus:ring-slate-100 cursor-pointer"
-                              >
-                                <option value="user">Người dùng (User)</option>
-                                <option value="admin">Quản trị viên (Admin)</option>
-                              </select>
-                              <SubmitButton className="h-8 rounded-lg border-none bg-slate-100 px-3 text-[10px] font-bold text-slate-600 shadow-none hover:bg-slate-200">
-                                Lưu
-                              </SubmitButton>
-                            </form>
+                            <UpdateRoleSelect username={user.username} currentRole={user.role || "user"} />
                             <DeleteUserButton username={user.username} />
                           </div>
                         </div>
@@ -312,10 +279,10 @@ export default async function AdminUsersPage() {
                           <Badge
                             variant="secondary"
                             className={`text-[10px] font-black uppercase px-2 ${tx.type === "credit" ? "bg-emerald-50 text-emerald-600" :
-                                tx.type === "debit" ? "bg-red-50 text-red-600" :
-                                  tx.type === "purchase" ? "bg-blue-50 text-blue-600" :
-                                    tx.type === "refund" ? "bg-amber-50 text-amber-600" :
-                                      "bg-slate-50 text-slate-600"
+                              tx.type === "debit" ? "bg-red-50 text-red-600" :
+                                tx.type === "purchase" ? "bg-blue-50 text-blue-600" :
+                                  tx.type === "refund" ? "bg-amber-50 text-amber-600" :
+                                    "bg-slate-50 text-slate-600"
                               }`}
                           >
                             {tx.type === "credit" ? "Cộng" :

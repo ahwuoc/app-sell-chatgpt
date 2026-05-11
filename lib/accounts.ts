@@ -110,7 +110,7 @@ export async function createAccounts(inputs: CreateAccountInput[]) {
       email: input.email,
       accountId: input.accountId,
       status: input.status,
-      saleStatus: input.status === "reg-success" ? "available" : "available", // Default to available but filtered by status
+      saleStatus: input.status === "reg-success" ? "available" : "reserved",
       password: input.password,
       sessionToken: input.sessionToken,
       mailkp: input.mailkp,
@@ -126,6 +126,8 @@ export async function updateAccountStatus(id: string, status: AccountStatus) {
   const updateDoc: any = { status, updatedAt: new Date() };
   if (status === "reg-success") {
     updateDoc.saleStatus = "available";
+  } else {
+    updateDoc.saleStatus = "reserved";
   }
   await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateDoc });
 }
