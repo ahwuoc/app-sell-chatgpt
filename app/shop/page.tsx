@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createOrderAction } from "../actions";
+import { logoutAction } from "@/app/actions";
 import { countSellableAccounts } from "@/lib/accounts";
 import { countOrdersByStatus } from "@/lib/orders";
 import { getCurrentSession } from "@/lib/auth";
@@ -7,8 +7,9 @@ import {
   findAdminUserByUsername,
   getAdminUserBalance,
 } from "@/lib/admin-users";
-import { SubmitButton } from "../submit-button";
 import { SHOP_PRICE } from "@/lib/config";
+import { ShopPurchaseForm } from "@/components/shop-purchase-form";
+import { SubmitButton } from "@/app/submit-button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,10 +29,6 @@ export default async function ShopPage() {
     session ? findAdminUserByUsername(session.username) : Promise.resolve(null),
   ]);
   const currentBalance = getAdminUserBalance(currentUser);
-  const canAfford = currentBalance >= PRICE;
-
-  const searchParams = {} as any;
-
   return (
     <div className="min-h-screen bg-white">
       {/* Top bar */}
@@ -47,6 +44,14 @@ export default async function ShopPage() {
                 {session.role === "admin" && (
                   <Link href="/admin" className="text-sm text-gray-500 hover:underline">Admin</Link>
                 )}
+                <form action={logoutAction}>
+                  <SubmitButton
+                    variant="outline"
+                    className="h-9 rounded-lg border-gray-200 px-3 text-sm text-gray-600 hover:bg-gray-50"
+                  >
+                    Đăng xuất
+                  </SubmitButton>
+                </form>
               </>
             ) : (
               <>
@@ -85,41 +90,18 @@ export default async function ShopPage() {
         </div>
 
         {/* Buy button */}
-        <form action={createOrderAction} className="mb-6 space-y-4">
-          {session && sellableCount > 0 && (
-            <div className="flex items-center gap-4 p-4 rounded-xl bg-gray-50 border border-gray-100">
-              <label htmlFor="quantity" className="text-sm font-bold text-gray-700">Số lượng mua:</label>
-              <input
-                id="quantity"
-                type="number"
-                name="quantity"
-                defaultValue="1"
-                min="1"
-                max={sellableCount}
-                className="w-24 h-10 px-3 rounded-lg border border-gray-200 bg-white font-bold text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all"
-              />
-              <span className="text-xs text-gray-400 font-medium italic">
-                (Tối đa {sellableCount} nick)
-              </span>
-            </div>
-          )}
-
-          {session ? (
-            sellableCount > 0 && canAfford ? (
-              <SubmitButton className="w-full h-14 rounded-2xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-all shadow-xl shadow-gray-200 active:scale-[0.98]">
-                Xác nhận thanh toán
-              </SubmitButton>
-            ) : (
-              <button type="button" disabled className="w-full h-14 rounded-2xl bg-gray-100 text-gray-400 font-bold cursor-not-allowed">
-                {sellableCount <= 0 ? "Tạm hết hàng" : "Số dư không đủ"}
-              </button>
-            )
-          ) : (
-            <Link href="/login" className="flex items-center justify-center w-full h-14 rounded-2xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-all shadow-xl shadow-gray-200">
-              Đăng nhập để mua
-            </Link>
-          )}
-        </form>
+        {session ? (
+          <ShopPurchaseForm
+            isLoggedIn
+            sellableCount={sellableCount}
+            currentBalance={currentBalance}
+            unitPrice={PRICE}
+          />
+        ) : (
+          <Link href="/login" className="mb-6 flex h-14 w-full items-center justify-center rounded-2xl bg-gray-900 font-bold text-white transition-all shadow-xl shadow-gray-200 hover:bg-gray-800">
+            Đăng nhập để mua
+          </Link>
+        )}
 
         {/* Stats */}
         <div className="flex items-center gap-6 text-sm text-gray-400 border-t border-gray-100 pt-6">

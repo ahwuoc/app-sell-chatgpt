@@ -34,7 +34,7 @@ import {
   updateAccountSaleStatus,
   getAccountById,
   findAccountByEmail,
-  revokeAccount,
+  revokeAccountsByOrderId,
 } from "@/lib/accounts";
 import type {
   AccountSaleStatus,
@@ -100,7 +100,7 @@ export async function loginAction(formData: FormData) {
   const authenticated = await loginWithCredentials(username, password);
 
   if (!authenticated) {
-    redirectToLogin("Thông tin đăng nhập không chính xác", redirectTo);
+    await redirectToLogin("Thông tin đăng nhập không chính xác", redirectTo);
   }
 
   redirect(redirectTo);
@@ -111,15 +111,15 @@ export async function registerAction(formData: FormData) {
   const password = readRequiredField(formData, "password");
   const confirmPassword = readRequiredField(formData, "confirmPassword");
 
-  if (username.length < 3) redirectToRegister("Username phải có ít nhất 3 ký tự");
-  if (password.length < 6) redirectToRegister("Mật khẩu phải có ít nhất 6 ký tự");
-  if (password !== confirmPassword) redirectToRegister("Mật khẩu nhập lại không khớp");
+  if (username.length < 3) await redirectToRegister("Username phải có ít nhất 3 ký tự");
+  if (password.length < 6) await redirectToRegister("Mật khẩu phải có ít nhất 6 ký tự");
+  if (password !== confirmPassword) await redirectToRegister("Mật khẩu nhập lại không khớp");
 
   const result = await createAdminUser(username, password);
-  if (!result.success) redirectToRegister(result.message);
+  if (!result.success) await redirectToRegister(result.message);
 
   const authenticated = await loginWithCredentials(username, password);
-  if (!authenticated) redirectToLogin("Không thể đăng nhập sau khi đăng ký");
+  if (!authenticated) await redirectToLogin("Không thể đăng nhập sau khi đăng ký");
 
   redirect("/shop");
 }
@@ -136,14 +136,26 @@ export async function createOrderAction(formData: FormData) {
   if (!session) redirect(buildLoginRedirectUrl("/shop"));
 
   const quantityStr = formData.get("quantity");
-  const quantity = Math.max(1, parseInt(typeof quantityStr === 'string' ? quantityStr : '1') || 1);
+  const parsedQuantity =
+    typeof quantityStr === "string" ? Number.parseInt(quantityStr, 10) : Number.NaN;
+  const quantity = Number.isInteger(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 1;
   const totalPrice = SHOP_PRICE * quantity;
 
   const currentUser = await findAdminUserByUsername(session.username);
   const currentBalance = getAdminUserBalance(currentUser);
+  const maxAffordableQuantity =
+    SHOP_PRICE > 0 ? Math.floor(currentBalance / SHOP_PRICE) : 0;
+
+  if (quantity > maxAffordableQuantity) {
+    await redirectToShop(
+      maxAffordableQuantity > 0
+        ? `Số dư hiện tại chỉ đủ mua tối đa ${maxAffordableQuantity} tài khoản`
+        : "Số dư không đủ để thực hiện giao dịch",
+    );
+  }
 
   if (currentBalance < totalPrice) {
-    redirectToShop("Số dư không đủ để thực hiện giao dịch");
+    await redirectToShop("Số dư không đủ để thực hiện giao dịch");
   }
 
   const [sellableCount, availableAccounts] = await Promise.all([
@@ -152,12 +164,12 @@ export async function createOrderAction(formData: FormData) {
   ]);
 
   if (sellableCount < quantity || availableAccounts.length < quantity) {
-    redirectToShop(`Hiện tại chỉ còn ${sellableCount} tài khoản trong kho`);
+    await redirectToShop(`Hiện tại chỉ còn ${sellableCount} tài khoản trong kho`);
   }
 
   const deducted = await deductAdminUserBalance(session.username, totalPrice);
   if (!deducted) {
-    redirectToShop("Lỗi khi trừ số dư, vui lòng thử lại");
+    await redirectToShop("Lỗi khi trừ số dư, vui lòng thử lại");
   }
 
   await logTransaction({
@@ -235,7 +247,7 @@ export async function createOrderAction(formData: FormData) {
       note: `Hoàn tiền — ${error.message}`,
     });
 
-    redirectToShop(`Lỗi xử lý: ${error.message}. Tiền đã được hoàn lại.`);
+    await redirectToShop(`Lỗi xử lý: ${error.message}. Tiền đã được hoàn lại.`);
   }
 
   redirect("/my-orders");
@@ -254,7 +266,9 @@ export async function bulkImportAccountsAction(formData: FormData) {
 
   const seenEmails = new Set<string>();
 
-  const accounts = rows.map((row, index): CreateAccountInput => {
+  const accounts: CreateAccountInput[] = [];
+
+  for (const [index, row] of rows.entries()) {
     const parts = row.split("|").map((part) => part.trim());
     let [email, password, sessionToken, accountId, mailkp, passwordMailkp] = ["", "", "", "", "", ""];
 
@@ -265,17 +279,25 @@ export async function bulkImportAccountsAction(formData: FormData) {
     }
 
     if (!email || !accountId) {
-      redirectWithMessage("error", `Dòng ${index + 1} không hợp lệ (Cần ít nhất Email và ClientID)`);
+      await redirectWithMessage("error", `Dòng ${index + 1} không hợp lệ (Cần ít nhất Email và ClientID)`);
     }
 
     if (seenEmails.has(email.toLowerCase())) {
-      redirectWithMessage("error", `Dòng ${index + 1} bị trùng email trong danh sách import`);
+      await redirectWithMessage("error", `Dòng ${index + 1} bị trùng email trong danh sách import`);
     }
 
     seenEmails.add(email.toLowerCase());
 
-    return { email, accountId, password, sessionToken, mailkp, passwordMailkp, status: "not-registered" };
-  });
+    accounts.push({
+      email,
+      accountId,
+      password,
+      sessionToken,
+      mailkp,
+      passwordMailkp,
+      status: "not-registered",
+    });
+  }
 
   const existing = await findExistingAccounts(accounts);
   const existingEmails = new Set(existing.map(acc => acc.email.toLowerCase()));
@@ -283,7 +305,7 @@ export async function bulkImportAccountsAction(formData: FormData) {
   const newAccounts = accounts.filter(acc => !existingEmails.has(acc.email.toLowerCase()));
 
   if (newAccounts.length === 0) {
-    redirectWithMessage("error", "Tất cả tài khoản trong danh sách đều đã tồn tại trong hệ thống");
+    await redirectWithMessage("error", "Tất cả tài khoản trong danh sách đều đã tồn tại trong hệ thống");
     return;
   }
 
@@ -295,7 +317,7 @@ export async function bulkImportAccountsAction(formData: FormData) {
     ? `Đã import ${newAccounts.length} tài khoản mới, bỏ qua ${skippedCount} tài khoản bị trùng.`
     : `Đã import thành công ${newAccounts.length} tài khoản.`;
 
-  redirectWithMessage("success", successMessage);
+  await redirectWithMessage("success", successMessage);
 }
 
 export async function updateAccountStatusAction(formData: FormData) {
@@ -347,18 +369,18 @@ export async function revokeAccountAction(formData: FormData) {
   const assignedAccounts = order?.accounts ?? [];
   const effectiveCount = assignedAccounts.length || (order?.accountId ? 1 : 0);
 
-  if (!order || effectiveCount !== 1 || order.quantity !== 1) {
+  if (!order || effectiveCount === 0) {
     return {
       success: false,
-      message: "Chưa hỗ trợ thu hồi tự động cho đơn nhiều tài khoản",
+      message: "Không tìm thấy dữ liệu đơn hàng hợp lệ để thu hồi",
     };
   }
 
-  const revokedOrderId = await revokeAccount(id);
+  const revokedCount = await revokeAccountsByOrderId(soldOrderId);
 
-  if (revokedOrderId) {
+  if (revokedCount > 0) {
     // Mark the order as refunded
-    await refundOrder(revokedOrderId);
+    await refundOrder(soldOrderId);
 
     // Automatically refund the user balance
     if (order && order.buyerUsername) {
@@ -375,7 +397,7 @@ export async function revokeAccountAction(formData: FormData) {
         amount: refundAmount,
         balanceBefore: currentBalance,
         balanceAfter: newBalance,
-        note: `Hoàn tiền tự động do thu hồi tài khoản đơn #${revokedOrderId.slice(-8).toUpperCase()}`,
+        note: `Hoàn tiền tự động do thu hồi ${revokedCount}/${effectiveCount} tài khoản của đơn #${soldOrderId.slice(-8).toUpperCase()}`,
       });
     }
 
@@ -383,7 +405,13 @@ export async function revokeAccountAction(formData: FormData) {
     revalidatePath("/shop");
     revalidatePath("/orders");
     revalidatePath("/my-orders");
-    return { success: true, message: "Đã thu hồi tài khoản và hoàn tiền thành công" };
+    return {
+      success: true,
+      message:
+        effectiveCount > 1
+          ? `Đã thu hồi toàn bộ ${revokedCount} tài khoản của đơn và hoàn tiền thành công`
+          : "Đã thu hồi tài khoản và hoàn tiền thành công",
+    };
   }
   return { success: false, message: "Không thể thu hồi tài khoản này" };
 }
@@ -399,32 +427,32 @@ export async function assignOrderAccountAction(formData: FormData) {
   const selectedAccount = availableAccounts.find((a) => a.id === accountId);
 
   if (!selectedAccount?.email) {
-    redirectToOrders("error", "Tài khoản không còn khả dụng để gán");
+    await redirectToOrders("error", "Tài khoản không còn khả dụng để gán");
     return;
   }
 
   const order = await getOrderById(orderId);
   if (!order || order.status !== "pending" || order.accountId || order.quantity !== 1) {
-    redirectToOrders("error", "Đơn hàng không hợp lệ để gán tài khoản");
+    await redirectToOrders("error", "Đơn hàng không hợp lệ để gán tài khoản");
     return;
   }
 
   const reserved = await assignAccountToOrder(accountId, orderId);
   if (!reserved) {
-    redirectToOrders("error", "Tài khoản vừa được sử dụng cho đơn hàng khác");
+    await redirectToOrders("error", "Tài khoản vừa được sử dụng cho đơn hàng khác");
     return;
   }
 
   const assigned = await assignOrderAccounts(orderId, [{ id: accountId, email: selectedAccount.email }]);
   if (!assigned) {
     await releaseAccountFromOrder(accountId, orderId);
-    redirectToOrders("error", "Không thể cập nhật thông tin đơn hàng");
+    await redirectToOrders("error", "Không thể cập nhật thông tin đơn hàng");
     return;
   }
 
   revalidatePath("/admin");
   revalidatePath("/orders");
-  redirectToOrders("success", "Đã gán tài khoản cho đơn hàng thành công");
+  await redirectToOrders("success", "Đã gán tài khoản cho đơn hàng thành công");
 }
 
 export async function completeOrderAction(formData: FormData) {
@@ -440,7 +468,7 @@ export async function completeOrderAction(formData: FormData) {
       : [];
 
   if (!order || order.status !== "assigned" || accountIds.length === 0) {
-    redirectToOrders("error", "Đơn hàng không ở trạng thái có thể hoàn tất");
+    await redirectToOrders("error", "Đơn hàng không ở trạng thái có thể hoàn tất");
     return;
   }
 
@@ -448,20 +476,20 @@ export async function completeOrderAction(formData: FormData) {
     accountIds.map((accountId) => markAccountAsSold(accountId, orderId)),
   );
   if (soldResults.some((result) => !result)) {
-    redirectToOrders("error", "Không thể chốt toàn bộ tài khoản của đơn hàng");
+    await redirectToOrders("error", "Không thể chốt toàn bộ tài khoản của đơn hàng");
     return;
   }
 
   const completed = await completeOrder(orderId);
   if (!completed) {
-    redirectToOrders("error", "Không thể hoàn tất đơn hàng");
+    await redirectToOrders("error", "Không thể hoàn tất đơn hàng");
     return;
   }
 
   revalidatePath("/admin");
   revalidatePath("/orders");
   revalidatePath("/shop");
-  redirectToOrders("success", "Đã xác nhận hoàn tất đơn hàng");
+  await redirectToOrders("success", "Đã xác nhận hoàn tất đơn hàng");
 }
 
 export async function cancelOrderAction(formData: FormData) {
@@ -470,7 +498,7 @@ export async function cancelOrderAction(formData: FormData) {
   const order = await getOrderById(orderId);
 
   if (!order || !["pending", "assigned"].includes(order.status)) {
-    redirectToOrders("error", "Đơn hàng này không thể hủy");
+    await redirectToOrders("error", "Đơn hàng này không thể hủy");
     return;
   }
 
@@ -491,7 +519,7 @@ export async function cancelOrderAction(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/orders");
   revalidatePath("/shop");
-  redirectToOrders("success", "Đã hủy đơn hàng và hoàn trả kho (nếu có)");
+  await redirectToOrders("success", "Đã hủy đơn hàng và hoàn trả kho (nếu có)");
 }
 
 // --- Admin User Management ---

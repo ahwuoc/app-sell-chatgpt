@@ -256,3 +256,26 @@ export async function revokeAccount(accountId: string) {
 
   return result.modifiedCount === 1 ? soldOrderId : null;
 }
+
+export async function revokeAccountsByOrderId(orderId: string) {
+  const collection = await getAccountsCollection();
+  const now = new Date();
+  const result = await collection.updateMany(
+    {
+      soldOrderId: orderId,
+      saleStatus: "sold",
+    },
+    {
+      $set: {
+        saleStatus: "available",
+        updatedAt: now,
+      },
+      $unset: {
+        soldOrderId: "",
+        soldAt: "",
+      },
+    },
+  );
+
+  return result.modifiedCount;
+}
