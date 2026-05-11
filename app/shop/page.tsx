@@ -85,19 +85,37 @@ export default async function ShopPage() {
         </div>
 
         {/* Buy button */}
-        <form action={createOrderAction} className="mb-6">
+        <form action={createOrderAction} className="mb-6 space-y-4">
+          {session && sellableCount > 0 && (
+            <div className="flex items-center gap-4 p-4 rounded-xl bg-gray-50 border border-gray-100">
+              <label htmlFor="quantity" className="text-sm font-bold text-gray-700">Số lượng mua:</label>
+              <input
+                id="quantity"
+                type="number"
+                name="quantity"
+                defaultValue="1"
+                min="1"
+                max={sellableCount}
+                className="w-24 h-10 px-3 rounded-lg border border-gray-200 bg-white font-bold text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all"
+              />
+              <span className="text-xs text-gray-400 font-medium italic">
+                (Tối đa {sellableCount} nick)
+              </span>
+            </div>
+          )}
+
           {session ? (
             sellableCount > 0 && canAfford ? (
-              <SubmitButton className="w-full h-12 rounded-xl bg-gray-900 text-white font-semibold hover:bg-gray-800 transition-colors">
-                Mua ngay — {formatPrice(PRICE)}
+              <SubmitButton className="w-full h-14 rounded-2xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-all shadow-xl shadow-gray-200 active:scale-[0.98]">
+                Xác nhận thanh toán
               </SubmitButton>
             ) : (
-              <button type="button" disabled className="w-full h-12 rounded-xl bg-gray-100 text-gray-400 font-semibold cursor-not-allowed">
+              <button type="button" disabled className="w-full h-14 rounded-2xl bg-gray-100 text-gray-400 font-bold cursor-not-allowed">
                 {sellableCount <= 0 ? "Tạm hết hàng" : "Số dư không đủ"}
               </button>
             )
           ) : (
-            <Link href="/login" className="flex items-center justify-center w-full h-12 rounded-xl bg-gray-900 text-white font-semibold hover:bg-gray-800 transition-colors">
+            <Link href="/login" className="flex items-center justify-center w-full h-14 rounded-2xl bg-gray-900 text-white font-bold hover:bg-gray-800 transition-all shadow-xl shadow-gray-200">
               Đăng nhập để mua
             </Link>
           )}

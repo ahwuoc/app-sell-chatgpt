@@ -47,6 +47,7 @@ const orderStatusLabel: Record<OrderStatus, string> = {
   assigned: "Đã gán account",
   completed: "Đã hoàn tất",
   cancelled: "Đã hủy",
+  refunded: "Đã hoàn tiền",
 };
 
 function formatPrice(value: number) {
@@ -183,7 +184,12 @@ export default async function OrdersPage() {
                           </div>
                         </TableCell>
                         <TableCell className="px-6 py-5 font-black text-slate-900">
-                          {order.unitPriceLabel}
+                          {order.totalPriceLabel}
+                          {order.quantity > 1 && (
+                            <div className="text-[11px] font-medium text-slate-400">
+                              {order.unitPriceLabel} x {order.quantity}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="px-6 py-5">
                           <Badge
@@ -194,22 +200,34 @@ export default async function OrdersPage() {
                               ${order.status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-100' : ''}
                               ${order.status === 'assigned' ? 'bg-blue-50 text-blue-600 border-blue-100' : ''}
                               ${order.status === 'cancelled' ? 'bg-red-50 text-red-600 border-red-100' : ''}
+                              ${order.status === 'refunded' ? 'bg-slate-100 text-slate-600 border-slate-200' : ''}
                             `}
                           >
                             {orderStatusLabel[order.status]}
                           </Badge>
                         </TableCell>
                         <TableCell className="px-6 py-5">
-                          {order.accountEmail ? (
-                            <div className="flex items-center gap-2">
-                              <div className="p-1.5 bg-slate-50 rounded-lg border border-slate-100">
-                                <Mail className="h-3.5 w-3.5 text-slate-400" />
+                          <div className="flex flex-col gap-2">
+                            {order.accounts && order.accounts.length > 0 ? (
+                              order.accounts.map((acc, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <div className="p-1 bg-slate-50 rounded-lg border border-slate-100">
+                                    <Mail className="h-3 w-3 text-slate-400" />
+                                  </div>
+                                  <span className="text-[11px] font-medium text-slate-600">{acc.email}</span>
+                                </div>
+                              ))
+                            ) : order.accountEmail ? (
+                              <div className="flex items-center gap-2">
+                                <div className="p-1.5 bg-slate-50 rounded-lg border border-slate-100">
+                                  <Mail className="h-3.5 w-3.5 text-slate-400" />
+                                </div>
+                                <span className="text-xs font-medium text-slate-600">{order.accountEmail}</span>
                               </div>
-                              <span className="text-xs font-medium text-slate-600">{order.accountEmail}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-300 italic">Chưa có dữ liệu</span>
-                          )}
+                            ) : (
+                              <span className="text-xs text-slate-300 italic">Chưa có dữ liệu</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="px-6 py-5">
                           <div className="flex items-center gap-2">
@@ -263,7 +281,7 @@ export default async function OrdersPage() {
                               </div>
                             )}
 
-                            {["completed", "cancelled"].includes(order.status) && (
+                            {["completed", "cancelled", "refunded"].includes(order.status) && (
                               <div className="flex items-center gap-2 text-slate-300">
                                 <Settings2 className="h-4 w-4 opacity-20" />
                                 <span className="text-[10px] font-bold uppercase tracking-widest">Đã chốt</span>

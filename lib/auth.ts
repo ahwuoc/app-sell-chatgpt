@@ -123,17 +123,22 @@ export async function requireAdmin() {
 
   if (session.role !== "admin") {
     const params = new URLSearchParams({
-      error: "Chi admin moi duoc xem trang nay",
+      error: "Bạn không có quyền truy cập trang quản trị",
     });
-    redirect(`/login?${params.toString()}`);
+    redirect(`/shop?${params.toString()}`);
   }
 
   return session;
 }
 
 export async function redirectIfAuthenticated() {
-  if (await isAuthenticated()) {
-    redirect("/admin");
+  const session = await getCurrentSession();
+  if (session) {
+    if (session.role === "admin") {
+      redirect("/admin");
+    } else {
+      redirect("/shop");
+    }
   }
 }
 
@@ -144,6 +149,28 @@ export async function requireNoAdminExists() {
     });
     redirect(`/login?${params.toString()}`);
   }
+}
+
+export async function setFlashMessage(type: "success" | "error", message: string) {
+  const cookieStore = await cookies();
+  cookieStore.set("flash_message", JSON.stringify({ type, message }), {
+    path: "/",
+    maxAge: 30,
+    httpOnly: false,
+  });
+}
+
+export async function getFlashMessage() {
+  const cookieStore = await cookies();
+  const flash = cookieStore.get("flash_message")?.value;
+  if (flash) {
+    try {
+      return JSON.parse(flash) as { type: "success" | "error"; message: string };
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function loginWithCredentials(username: string, password: string) {

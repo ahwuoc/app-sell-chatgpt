@@ -50,6 +50,11 @@ export async function findAccountByEmail(email: string) {
   return collection.findOne({ email: email.trim() });
 }
 
+export async function getAccountById(id: string) {
+  const collection = await getAccountsCollection();
+  return collection.findOne({ _id: new ObjectId(id) });
+}
+
 export async function getAccountByOrderId(orderId: string) {
   const collection = await getAccountsCollection();
   const account = await collection.findOne({ soldOrderId: orderId });
@@ -204,4 +209,50 @@ export async function releaseAccountFromOrder(accountId: string, orderId: string
     },
   );
   return result.modifiedCount === 1;
+}
+
+export async function rollbackAccountOrderAssignment(accountId: string, orderId: string) {
+  const collection = await getAccountsCollection();
+  const result = await collection.updateOne(
+    {
+      _id: new ObjectId(accountId),
+      soldOrderId: orderId,
+      saleStatus: { $in: ["reserved", "sold"] },
+    },
+    {
+      $set: {
+        saleStatus: "available",
+        updatedAt: new Date(),
+      },
+      $unset: {
+        soldOrderId: "",
+        soldAt: "",
+      },
+    },
+  );
+  return result.modifiedCount === 1;
+}
+
+export async function revokeAccount(accountId: string) {
+  const collection = await getAccountsCollection();
+  const account = await collection.findOne({ _id: new ObjectId(accountId), saleStatus: "sold" });
+  if (!account) return null;
+
+  const soldOrderId = account.soldOrderId;
+
+  const result = await collection.updateOne(
+    { _id: new ObjectId(accountId), saleStatus: "sold" },
+    {
+      $set: {
+        saleStatus: "available",
+        updatedAt: new Date(),
+      },
+      $unset: {
+        soldOrderId: "",
+        soldAt: "",
+      },
+    }
+  );
+
+  return result.modifiedCount === 1 ? soldOrderId : null;
 }

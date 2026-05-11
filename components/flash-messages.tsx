@@ -6,31 +6,44 @@ import { toast } from "sonner";
 
 function FlashMessagesContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(";").shift();
+      return null;
+    };
+
+    const flashCookie = getCookie("flash_message");
+    if (flashCookie) {
+      try {
+        const { type, message } = JSON.parse(decodeURIComponent(flashCookie));
+        if (type === "success") toast.success(message);
+        else toast.error(message);
+
+        // Clear cookie
+        document.cookie = "flash_message=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      } catch (e) {
+        console.error("Flash cookie error:", e);
+      }
+    }
+
+    // 2. Backward Compatibility: Check URL Search Params
     const success = searchParams.get("success");
     const error = searchParams.get("error");
 
-    if (success) {
-      toast.success(decodeURIComponent(success));
-      // Remove the param from the URL without refreshing
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("success");
-      const query = params.toString() ? `?${params.toString()}` : "";
-      router.replace(`${pathname}${query}`);
-    }
+    if (success || error) {
+      if (success) toast.success(decodeURIComponent(success));
+      if (error) toast.error(decodeURIComponent(error));
 
-    if (error) {
-      toast.error(decodeURIComponent(error));
-      // Remove the param from the URL without refreshing
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("error");
-      const query = params.toString() ? `?${params.toString()}` : "";
-      router.replace(`${pathname}${query}`);
+      // Remove the params from the URL immediately
+      const url = new URL(window.location.href);
+      url.searchParams.delete("success");
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.pathname + url.search);
     }
-  }, [searchParams, router, pathname]);
+  }, [searchParams]);
 
   return null;
 }

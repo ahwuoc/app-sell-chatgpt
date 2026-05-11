@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updateAccountStatusAction } from "@/app/actions";
 import { TrendingUp, AlertCircle, Check, X } from "lucide-react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 import type { AccountStatus } from "@/types/account";
 
 interface UpdateStatusSelectProps {
@@ -31,7 +32,10 @@ export function UpdateStatusSelect({ id, currentStatus, email }: UpdateStatusSel
       const formData = new FormData();
       formData.append("id", id);
       formData.append("status", pendingStatus);
-      await updateAccountStatusAction(formData);
+      const result = await updateAccountStatusAction(formData);
+      if (result?.success) {
+        toast.success(result.message);
+      }
       setIsOpen(false);
     } catch (error) {
       console.error("Update failed", error);

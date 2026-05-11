@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updateAccountSaleStatusAction } from "@/app/actions";
 import { AlertCircle, Check, X, Eye, EyeOff } from "lucide-react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 import type { AccountSaleStatus } from "@/types/account";
 
 interface UpdateSaleStatusButtonProps {
@@ -24,7 +25,10 @@ export function UpdateSaleStatusButton({ id, currentSaleStatus, email }: UpdateS
       const formData = new FormData();
       formData.append("id", id);
       formData.append("saleStatus", nextStatus);
-      await updateAccountSaleStatusAction(formData);
+      const result = await updateAccountSaleStatusAction(formData);
+      if (result?.success) {
+        toast.success(result.message);
+      }
       setIsOpen(false);
     } catch (error) {
       console.error("Update failed", error);

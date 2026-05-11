@@ -16,7 +16,6 @@ export default async function RegisterPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await redirectIfAuthenticated();
-  await requireNoAdminExists();
 
   const params = (await searchParams) ?? {};
   const error =
@@ -29,7 +28,7 @@ export default async function RegisterPage({
           <CardHeader className="space-y-4">
             <Badge variant="outline" className="w-fit gap-2 px-3 py-1">
               <ShieldCheck className="h-4 w-4" />
-              Tao tai khoan admin
+              Đăng ký thành viên
             </Badge>
             <div className="space-y-1">
               <CardTitle className="text-2xl">Dang ky</CardTitle>

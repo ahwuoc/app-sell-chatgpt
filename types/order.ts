@@ -1,14 +1,15 @@
-export type OrderStatus = "pending" | "assigned" | "completed" | "cancelled";
+export type OrderStatus = "pending" | "assigned" | "completed" | "cancelled" | "refunded";
 
 export type OrderDocument = {
   buyerUsername?: string;
   buyerContact: string;
   unitPrice: number;
-  quantity: 1;
+  quantity: number;
   totalPrice: number;
   status: OrderStatus;
   accountId?: string;
   accountEmail?: string;
+  accounts?: { id: string; email: string }[];
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -22,9 +23,13 @@ export type OrderView = {
   buyerUsername: string | null;
   buyerContact: string;
   unitPriceLabel: string;
+  quantity: number;
+  totalPrice: number;
+  totalPriceLabel: string;
   status: OrderStatus;
   accountEmail: string | null;
   accountId: string | null;
+  accounts: { id: string; email: string }[];
   createdAt: string;
   assignedAt: string | null;
 };

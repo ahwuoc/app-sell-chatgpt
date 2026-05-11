@@ -18,9 +18,13 @@ function mapOrder(document: WithId<OrderDocument>): OrderView {
     buyerUsername: document.buyerUsername ?? null,
     buyerContact: document.buyerContact,
     unitPriceLabel: formatPrice(document.unitPrice),
+    quantity: document.quantity,
+    totalPrice: document.totalPrice,
+    totalPriceLabel: formatPrice(document.totalPrice),
     status: document.status,
     accountEmail: document.accountEmail ?? null,
     accountId: document.accountId ?? null,
+    accounts: document.accounts ?? [],
     createdAt: document.createdAt.toLocaleString("vi-VN"),
     assignedAt: document.assignedAt
       ? document.assignedAt.toLocaleString("vi-VN")
@@ -36,16 +40,19 @@ async function getOrdersCollection() {
 export async function createOrder(input: {
   buyerUsername: string;
   buyerContact: string;
+  quantity?: number;
 }) {
   const collection = await getOrdersCollection();
   const now = new Date();
+  const quantity = input.quantity ?? 1;
+  const totalPrice = ORDER_PRICE * quantity;
 
   const result = await collection.insertOne({
     buyerUsername: input.buyerUsername,
     buyerContact: input.buyerContact.trim(),
     unitPrice: ORDER_PRICE,
-    quantity: 1,
-    totalPrice: ORDER_PRICE,
+    quantity,
+    totalPrice,
     status: "pending",
     createdAt: now,
     updatedAt: now,
@@ -74,10 +81,9 @@ export async function getOrderById(id: string) {
   return collection.findOne({ _id: new ObjectId(id) });
 }
 
-export async function assignOrderAccount(
+export async function assignOrderAccounts(
   orderId: string,
-  accountId: string,
-  accountEmail: string,
+  accounts: { id: string; email: string }[],
 ) {
   const collection = await getOrdersCollection();
   const now = new Date();
@@ -85,13 +91,14 @@ export async function assignOrderAccount(
     {
       _id: new ObjectId(orderId),
       status: "pending",
-      accountId: { $exists: false },
     },
     {
       $set: {
         status: "assigned",
-        accountId,
-        accountEmail,
+        accounts,
+        // Also set legacy fields for compatibility
+        accountId: accounts[0]?.id,
+        accountEmail: accounts[0]?.email,
         assignedAt: now,
         updatedAt: now,
       },
@@ -145,4 +152,27 @@ export async function completeOrder(orderId: string) {
 export async function countOrdersByStatus(status: OrderStatus) {
   const collection = await getOrdersCollection();
   return collection.countDocuments({ status });
+}
+
+export async function refundOrder(orderId: string) {
+  const collection = await getOrdersCollection();
+  const now = new Date();
+  const result = await collection.updateOne(
+    { _id: new ObjectId(orderId) },
+    {
+      $set: {
+        status: "refunded",
+        updatedAt: now,
+      },
+      $unset: {
+        accountId: "",
+        accountEmail: "",
+        accounts: "",
+        assignedAt: "",
+        completedAt: "",
+      },
+    },
+  );
+
+  return result.modifiedCount === 1;
 }

@@ -1,8 +1,6 @@
 import Link from "next/link";
 import {
-  deleteAccountAction,
   logoutAction,
-  updateAccountStatusAction,
   updateBalanceAction,
   updateAccountSaleStatusAction,
 } from "../actions";
@@ -11,6 +9,8 @@ import { ImportModal } from "@/components/import-modal";
 import { MessagesModal } from "@/components/messages-modal";
 import { UpdateStatusSelect } from "@/components/update-status-select";
 import { UpdateSaleStatusButton } from "@/components/update-sale-status-button";
+import { RevokeAccountButton } from "@/components/revoke-account-button";
+import { DeleteAccountButton } from "@/components/delete-account-button";
 import { requireAdmin } from "@/lib/auth";
 import {
   countSellableAccounts,
@@ -76,7 +76,8 @@ export default async function AdminPage(props: {
   const currentTab = searchParams.tab || 'all';
   const filteredAccounts = accounts.filter(acc => {
     if (currentTab === 'all') return true;
-    return acc.status === currentTab;
+    if (currentTab === 'sold') return acc.saleStatus === 'sold';
+    return acc.status === currentTab && acc.saleStatus !== 'sold';
   });
 
   const totalUserBalance = users.reduce((sum, user) => sum + (user.balance || 0), 0);
@@ -218,8 +219,9 @@ export default async function AdminPage(props: {
                   {[
                     { id: 'all', label: 'Tất cả', count: accounts.length },
                     { id: 'not-registered', label: 'Chưa reg', count: accounts.filter(a => a.status === 'not-registered').length },
-                    { id: 'reg-success', label: 'Thành công', count: accounts.filter(a => a.status === 'reg-success').length },
-                    { id: 'reg-failed', label: 'Thất bại', count: accounts.filter(a => a.status === 'reg-failed').length }
+                    { id: 'reg-success', label: 'Thành công', count: accounts.filter(a => a.status === 'reg-success' && a.saleStatus !== 'sold').length },
+                    { id: 'reg-failed', label: 'Thất bại', count: accounts.filter(a => a.status === 'reg-failed').length },
+                    { id: 'sold', label: 'Đã bán', count: accounts.filter(a => a.saleStatus === 'sold').length }
                   ].map((tab) => (
                     <Link
                       key={tab.id}
@@ -299,6 +301,24 @@ export default async function AdminPage(props: {
                                       : 'Tạm dừng'}
                               </Badge>
 
+                              {account.saleStatus === 'sold' && (
+                                <div className="flex flex-col gap-1.5">
+                                  <RevokeAccountButton
+                                    id={account.id}
+                                    email={account.email}
+                                  />
+                                  {account.soldOrderId && (
+                                    <Link
+                                      href={`/orders?id=${account.soldOrderId}`}
+                                      className="text-[10px] text-slate-400 hover:text-blue-500 transition-colors flex items-center gap-1"
+                                    >
+                                      <History className="h-3 w-3" />
+                                      Xem đơn hàng
+                                    </Link>
+                                  )}
+                                </div>
+                              )}
+
                               {account.saleStatus !== 'sold' && account.status === 'reg-success' && (
                                 <UpdateSaleStatusButton
                                   id={account.id}
@@ -309,16 +329,7 @@ export default async function AdminPage(props: {
                             </div>
                           </TableCell>
                           <TableCell className="px-6 py-4 text-center">
-                            <form action={deleteAccountAction}>
-                              <input type="hidden" name="id" value={account.id} />
-                              <button
-                                type="submit"
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-50 text-red-400 transition-all hover:bg-red-50 hover:text-red-600 active:scale-90"
-                                title="Xóa tài khoản"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </form>
+                            <DeleteAccountButton id={account.id} />
                           </TableCell>
                         </TableRow>
                       ))}

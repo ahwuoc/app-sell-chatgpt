@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updateBalanceAction } from "@/app/actions";
 import { Wallet, AlertCircle, Check } from "lucide-react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 interface UpdateBalanceFormProps {
   username: string;
@@ -28,7 +29,10 @@ export function UpdateBalanceForm({ username, currentBalance }: UpdateBalanceFor
       formData.append("username", username);
       formData.append("balance", amount);
       formData.append("type", type);
-      await updateBalanceAction(formData);
+      const result = await updateBalanceAction(formData);
+      if (result?.success) {
+        toast.success(result.message);
+      }
       setIsOpen(false);
       setAmount("");
     } catch (error) {

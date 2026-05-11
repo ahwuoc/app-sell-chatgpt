@@ -18,6 +18,7 @@ import {
   loginWithCredentials,
   logout,
   requireAdmin,
+  setFlashMessage,
 } from "@/lib/auth";
 import {
   assignAccountToOrder,
@@ -28,9 +29,12 @@ import {
   listAvailableAccountsForSale,
   markAccountAsSold,
   releaseAccountFromOrder,
+  rollbackAccountOrderAssignment,
   updateAccountStatus,
   updateAccountSaleStatus,
+  getAccountById,
   findAccountByEmail,
+  revokeAccount,
 } from "@/lib/accounts";
 import type {
   AccountSaleStatus,
@@ -40,16 +44,14 @@ import type {
 import {
   createOrder,
   getOrderById,
-  assignOrderAccount,
+  assignOrderAccounts,
   cancelOrder,
   completeOrder,
   listOrdersByUsername,
+  refundOrder,
 } from "@/lib/orders";
 import { SHOP_PRICE } from "@/lib/config";
 import { logTransaction } from "@/lib/transactions";
-
-// --- Helper Functions ---
-
 function readRequiredField(formData: FormData, key: string): string {
   const value = formData.get(key);
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -58,29 +60,30 @@ function readRequiredField(formData: FormData, key: string): string {
   return value.trim();
 }
 
-function redirectWithMessage(type: "success" | "error", message: string) {
-  const params = new URLSearchParams({ [type]: message });
-  redirect(`/admin?${params.toString()}`);
+async function redirectWithMessage(type: "success" | "error", message: string) {
+  await setFlashMessage(type, message);
+  redirect("/admin");
 }
 
-function redirectToLogin(message: string, redirectTo = "/admin") {
-  const params = new URLSearchParams({ error: message, redirectTo });
+async function redirectToLogin(message: string, redirectTo = "/admin") {
+  await setFlashMessage("error", message);
+  const params = new URLSearchParams({ redirectTo });
   redirect(`/login?${params.toString()}`);
 }
 
-function redirectToRegister(message: string) {
-  const params = new URLSearchParams({ error: message });
-  redirect(`/register?${params.toString()}`);
+async function redirectToRegister(message: string) {
+  await setFlashMessage("error", message);
+  redirect("/register");
 }
 
-function redirectToShop(message: string) {
-  const params = new URLSearchParams({ error: message });
-  redirect(`/shop?${params.toString()}`);
+async function redirectToShop(message: string) {
+  await setFlashMessage("error", message);
+  redirect("/shop");
 }
 
-function redirectToOrders(type: "success" | "error", message: string) {
-  const params = new URLSearchParams({ [type]: message });
-  redirect(`/orders?${params.toString()}`);
+async function redirectToOrders(type: "success" | "error", message: string) {
+  await setFlashMessage(type, message);
+  redirect("/orders");
 }
 
 // --- Auth Actions ---
@@ -132,10 +135,14 @@ export async function createOrderAction(formData: FormData) {
   const session = await getCurrentSession();
   if (!session) redirect(buildLoginRedirectUrl("/shop"));
 
+  const quantityStr = formData.get("quantity");
+  const quantity = Math.max(1, parseInt(typeof quantityStr === 'string' ? quantityStr : '1') || 1);
+  const totalPrice = SHOP_PRICE * quantity;
+
   const currentUser = await findAdminUserByUsername(session.username);
   const currentBalance = getAdminUserBalance(currentUser);
 
-  if (currentBalance < SHOP_PRICE) {
+  if (currentBalance < totalPrice) {
     redirectToShop("Số dư không đủ để thực hiện giao dịch");
   }
 
@@ -144,13 +151,11 @@ export async function createOrderAction(formData: FormData) {
     listAvailableAccountsForSale(),
   ]);
 
-  if (sellableCount <= 0 || availableAccounts.length === 0) {
-    redirectToShop("Sản phẩm hiện đang hết hàng");
+  if (sellableCount < quantity || availableAccounts.length < quantity) {
+    redirectToShop(`Hiện tại chỉ còn ${sellableCount} tài khoản trong kho`);
   }
 
-  const selectedAccount = availableAccounts[0];
-  const deducted = await deductAdminUserBalance(session.username, SHOP_PRICE);
-
+  const deducted = await deductAdminUserBalance(session.username, totalPrice);
   if (!deducted) {
     redirectToShop("Lỗi khi trừ số dư, vui lòng thử lại");
   }
@@ -158,60 +163,48 @@ export async function createOrderAction(formData: FormData) {
   await logTransaction({
     username: session.username,
     type: "purchase",
-    amount: SHOP_PRICE,
+    amount: totalPrice,
     balanceBefore: currentBalance,
-    balanceAfter: currentBalance - SHOP_PRICE,
-    note: "Mua tài khoản ChatGPT",
+    balanceAfter: currentBalance - totalPrice,
+    note: `Mua ${quantity} tài khoản ChatGPT`,
   });
 
   const orderId = await createOrder({
     buyerUsername: session.username,
     buyerContact: "Shop Purchase",
+    quantity,
   });
 
-  try {
-    let reserved = false;
-    let reservedAccount = selectedAccount;
+  const reservedAccounts: { id: string; email: string }[] = [];
 
+  try {
     for (const account of availableAccounts) {
-      reserved = await assignAccountToOrder(account.id, orderId);
+      if (reservedAccounts.length >= quantity) break;
+      const reserved = await assignAccountToOrder(account.id, orderId);
       if (reserved) {
-        reservedAccount = account;
-        break;
+        reservedAccounts.push({ id: account.id, email: account.email });
       }
     }
 
-    if (!reserved) {
-      await refundAdminUserBalance(session.username, SHOP_PRICE);
-      await cancelOrder(orderId);
-      await logTransaction({
-        username: session.username,
-        type: "refund",
-        amount: SHOP_PRICE,
-        balanceBefore: currentBalance - SHOP_PRICE,
-        balanceAfter: currentBalance,
-        note: "Hoàn tiền — hết hàng",
-      });
-      redirectToShop("Tất cả tài khoản vừa được người khác mua mất, tiền đã được hoàn lại. Vui lòng thử lại.");
+    if (reservedAccounts.length < quantity) {
+      throw new Error("Không đủ tài khoản khả dụng thực tế");
     }
 
-    const processed = await Promise.all([
-      assignOrderAccount(orderId, reservedAccount.id, reservedAccount.email),
-      markAccountAsSold(reservedAccount.id, orderId),
-      completeOrder(orderId)
-    ]);
+    const assigned = await assignOrderAccounts(orderId, reservedAccounts);
+    if (!assigned) {
+      throw new Error("Không thể cập nhật thông tin đơn hàng");
+    }
 
-    if (processed.some(r => !r)) {
-      await refundAdminUserBalance(session.username, SHOP_PRICE);
-      await logTransaction({
-        username: session.username,
-        type: "refund",
-        amount: SHOP_PRICE,
-        balanceBefore: currentBalance - SHOP_PRICE,
-        balanceAfter: currentBalance,
-        note: "Hoàn tiền — lỗi xử lý đơn",
-      });
-      throw new Error("Lỗi khi xử lý đơn hàng, tiền đã được hoàn lại");
+    const soldResults = await Promise.all(
+      reservedAccounts.map((account) => markAccountAsSold(account.id, orderId)),
+    );
+    if (soldResults.some((result) => !result)) {
+      throw new Error("Không thể chốt trạng thái bán cho toàn bộ tài khoản");
+    }
+
+    const completed = await completeOrder(orderId);
+    if (!completed) {
+      throw new Error("Không thể hoàn tất đơn hàng");
     }
 
     revalidatePath("/admin");
@@ -221,10 +214,31 @@ export async function createOrderAction(formData: FormData) {
     revalidatePath("/admin/users");
   } catch (error: any) {
     console.error("Purchase error:", error);
-    redirectToShop(`Lỗi xử lý: ${error.message}`);
+
+    await Promise.allSettled(
+      reservedAccounts.map((account) =>
+        rollbackAccountOrderAssignment(account.id, orderId),
+      ),
+    );
+
+    await Promise.allSettled([
+      refundAdminUserBalance(session.username, totalPrice),
+      cancelOrder(orderId),
+    ]);
+
+    await logTransaction({
+      username: session.username,
+      type: "refund",
+      amount: totalPrice,
+      balanceBefore: currentBalance - totalPrice,
+      balanceAfter: currentBalance,
+      note: `Hoàn tiền — ${error.message}`,
+    });
+
+    redirectToShop(`Lỗi xử lý: ${error.message}. Tiền đã được hoàn lại.`);
   }
 
-  redirect(`/shop/success?orderId=${orderId}`);
+  redirect("/my-orders");
 }
 
 // --- Admin Account Actions ---
@@ -264,13 +278,24 @@ export async function bulkImportAccountsAction(formData: FormData) {
   });
 
   const existing = await findExistingAccounts(accounts);
-  if (existing.length > 0) {
-    redirectWithMessage("error", `Email đã tồn tại trong hệ thống: ${existing[0].email}`);
+  const existingEmails = new Set(existing.map(acc => acc.email.toLowerCase()));
+
+  const newAccounts = accounts.filter(acc => !existingEmails.has(acc.email.toLowerCase()));
+
+  if (newAccounts.length === 0) {
+    redirectWithMessage("error", "Tất cả tài khoản trong danh sách đều đã tồn tại trong hệ thống");
+    return;
   }
 
-  await createAccounts(accounts);
+  await createAccounts(newAccounts);
   revalidatePath("/admin");
-  redirectWithMessage("success", `Đã import thành công ${accounts.length} tài khoản`);
+
+  const skippedCount = accounts.length - newAccounts.length;
+  const successMessage = skippedCount > 0
+    ? `Đã import ${newAccounts.length} tài khoản mới, bỏ qua ${skippedCount} tài khoản bị trùng.`
+    : `Đã import thành công ${newAccounts.length} tài khoản.`;
+
+  redirectWithMessage("success", successMessage);
 }
 
 export async function updateAccountStatusAction(formData: FormData) {
@@ -285,7 +310,7 @@ export async function updateAccountStatusAction(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/orders");
   revalidatePath("/shop");
-  redirectWithMessage("success", "Đã cập nhật trạng thái tài khoản");
+  return { success: true, message: "Đã cập nhật trạng thái tài khoản" };
 }
 
 export async function updateAccountSaleStatusAction(formData: FormData) {
@@ -296,7 +321,7 @@ export async function updateAccountSaleStatusAction(formData: FormData) {
   await updateAccountSaleStatus(id, saleStatus);
   revalidatePath("/admin");
   revalidatePath("/shop");
-  redirectWithMessage("success", "Đã cập nhật trạng thái đăng bán");
+  return { success: true, message: "Đã cập nhật trạng thái đăng bán" };
 }
 
 export async function deleteAccountAction(formData: FormData) {
@@ -305,7 +330,62 @@ export async function deleteAccountAction(formData: FormData) {
   await deleteAccount(id);
   revalidatePath("/admin");
   revalidatePath("/shop");
-  redirectWithMessage("success", "Đã xóa tài khoản khỏi hệ thống");
+  return { success: true, message: "Đã xóa tài khoản khỏi hệ thống" };
+}
+
+export async function revokeAccountAction(formData: FormData) {
+  await requireAdmin();
+  const id = readRequiredField(formData, "id");
+  const account = await getAccountById(id);
+  const soldOrderId = account?.soldOrderId ?? null;
+
+  if (!soldOrderId) {
+    return { success: false, message: "Tài khoản này chưa gắn với đơn hàng đã bán" };
+  }
+
+  const order = await getOrderById(soldOrderId);
+  const assignedAccounts = order?.accounts ?? [];
+  const effectiveCount = assignedAccounts.length || (order?.accountId ? 1 : 0);
+
+  if (!order || effectiveCount !== 1 || order.quantity !== 1) {
+    return {
+      success: false,
+      message: "Chưa hỗ trợ thu hồi tự động cho đơn nhiều tài khoản",
+    };
+  }
+
+  const revokedOrderId = await revokeAccount(id);
+
+  if (revokedOrderId) {
+    // Mark the order as refunded
+    await refundOrder(revokedOrderId);
+
+    // Automatically refund the user balance
+    if (order && order.buyerUsername) {
+      const refundAmount = order.totalPrice;
+      const buyer = await findAdminUserByUsername(order.buyerUsername);
+      const currentBalance = getAdminUserBalance(buyer);
+      const newBalance = currentBalance + refundAmount;
+      await updateAdminUserBalance(order.buyerUsername, newBalance);
+
+      // Log the refund transaction
+      await logTransaction({
+        username: order.buyerUsername,
+        type: "refund",
+        amount: refundAmount,
+        balanceBefore: currentBalance,
+        balanceAfter: newBalance,
+        note: `Hoàn tiền tự động do thu hồi tài khoản đơn #${revokedOrderId.slice(-8).toUpperCase()}`,
+      });
+    }
+
+    revalidatePath("/admin");
+    revalidatePath("/shop");
+    revalidatePath("/orders");
+    revalidatePath("/my-orders");
+    return { success: true, message: "Đã thu hồi tài khoản và hoàn tiền thành công" };
+  }
+  return { success: false, message: "Không thể thu hồi tài khoản này" };
 }
 
 // --- Admin Order Management ---
@@ -324,7 +404,7 @@ export async function assignOrderAccountAction(formData: FormData) {
   }
 
   const order = await getOrderById(orderId);
-  if (!order || order.status !== "pending" || order.accountId) {
+  if (!order || order.status !== "pending" || order.accountId || order.quantity !== 1) {
     redirectToOrders("error", "Đơn hàng không hợp lệ để gán tài khoản");
     return;
   }
@@ -335,7 +415,7 @@ export async function assignOrderAccountAction(formData: FormData) {
     return;
   }
 
-  const assigned = await assignOrderAccount(orderId, accountId, selectedAccount.email);
+  const assigned = await assignOrderAccounts(orderId, [{ id: accountId, email: selectedAccount.email }]);
   if (!assigned) {
     await releaseAccountFromOrder(accountId, orderId);
     redirectToOrders("error", "Không thể cập nhật thông tin đơn hàng");
@@ -352,13 +432,31 @@ export async function completeOrderAction(formData: FormData) {
   const orderId = readRequiredField(formData, "orderId");
   const order = await getOrderById(orderId);
 
-  if (!order || order.status !== "assigned" || !order.accountId) {
+  const assignedAccounts = order?.accounts ?? [];
+  const accountIds = assignedAccounts.length
+    ? assignedAccounts.map((account) => account.id)
+    : order?.accountId
+      ? [order.accountId]
+      : [];
+
+  if (!order || order.status !== "assigned" || accountIds.length === 0) {
     redirectToOrders("error", "Đơn hàng không ở trạng thái có thể hoàn tất");
     return;
   }
 
-  await markAccountAsSold(order.accountId, orderId);
-  await completeOrder(orderId);
+  const soldResults = await Promise.all(
+    accountIds.map((accountId) => markAccountAsSold(accountId, orderId)),
+  );
+  if (soldResults.some((result) => !result)) {
+    redirectToOrders("error", "Không thể chốt toàn bộ tài khoản của đơn hàng");
+    return;
+  }
+
+  const completed = await completeOrder(orderId);
+  if (!completed) {
+    redirectToOrders("error", "Không thể hoàn tất đơn hàng");
+    return;
+  }
 
   revalidatePath("/admin");
   revalidatePath("/orders");
@@ -376,8 +474,17 @@ export async function cancelOrderAction(formData: FormData) {
     return;
   }
 
-  if (order.accountId && order.status === "assigned") {
-    await releaseAccountFromOrder(order.accountId, orderId);
+  if (order.status === "assigned") {
+    const assignedAccounts = order.accounts ?? [];
+    const accountIds = assignedAccounts.length
+      ? assignedAccounts.map((account) => account.id)
+      : order.accountId
+        ? [order.accountId]
+        : [];
+
+    await Promise.allSettled(
+      accountIds.map((accountId) => releaseAccountFromOrder(accountId, orderId)),
+    );
   }
 
   await cancelOrder(orderId);
@@ -429,7 +536,7 @@ export async function updateBalanceAction(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath("/admin/users");
-  redirectWithMessage("success", message);
+  return { success: true, message };
 }
 
 export async function updateUserRoleAction(formData: FormData) {
@@ -437,18 +544,17 @@ export async function updateUserRoleAction(formData: FormData) {
   const username = readRequiredField(formData, "username");
   const role = readRequiredField(formData, "role");
   if (role !== "admin" && role !== "user") {
-    redirectWithMessage("error", "Quyền không hợp lệ, chỉ chấp nhận admin hoặc user");
-    return;
+    return { success: false, message: "Quyền không hợp lệ, chỉ chấp nhận admin hoặc user" };
   }
 
   const session = await getCurrentSession();
   if (session?.username === username) {
-    redirectWithMessage("error", "Bạn không thể tự thay đổi quyền của chính mình");
+    return { success: false, message: "Bạn không thể tự thay đổi quyền của chính mình" };
   }
 
   await updateAdminUserRole(username, role);
   revalidatePath("/admin/users");
-  redirectWithMessage("success", `Đã cập nhật quyền thành ${role} cho ${username}`);
+  return { success: true, message: `Đã cập nhật quyền thành ${role} cho ${username}` };
 }
 
 export async function deleteUserAction(formData: FormData) {
@@ -457,12 +563,12 @@ export async function deleteUserAction(formData: FormData) {
 
   const session = await getCurrentSession();
   if (session?.username === username) {
-    redirectWithMessage("error", "Bạn không thể tự xóa tài khoản của mình");
+    return { success: false, message: "Bạn không thể tự xóa tài khoản của mình" };
   }
 
   await deleteAdminUser(username);
   revalidatePath("/admin/users");
-  redirectWithMessage("success", `Đã xóa vĩnh viễn người dùng ${username}`);
+  return { success: true, message: `Đã xóa vĩnh viễn người dùng ${username}` };
 }
 
 // --- External API Actions ---
@@ -473,7 +579,15 @@ export async function getMessagesAction(email: string) {
 
   if (session.role !== "admin") {
     const userOrders = await listOrdersByUsername(session.username);
-    const hasOrder = userOrders.some(order => order.accountEmail === email && order.status === 'completed');
+    const hasOrder = userOrders.some((order) => {
+      if (order.status !== "completed") {
+        return false;
+      }
+      if (order.accountEmail === email) {
+        return true;
+      }
+      return order.accounts.some((account) => account.email === email);
+    });
     if (!hasOrder) {
       throw new Error("Bạn không có quyền truy cập tài khoản này");
     }

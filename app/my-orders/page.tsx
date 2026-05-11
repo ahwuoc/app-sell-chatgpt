@@ -29,6 +29,7 @@ const orderStatusLabel: Record<OrderStatus, string> = {
   assigned: "Đã gán",
   completed: "Hoàn tất",
   cancelled: "Đã hủy",
+  refunded: "Hoàn tiền",
 };
 
 const orderStatusVariant: Record<
@@ -39,6 +40,7 @@ const orderStatusVariant: Record<
   assigned: "secondary",
   completed: "success",
   cancelled: "destructive",
+  refunded: "secondary",
 };
 
 export default async function MyOrdersPage() {
@@ -123,7 +125,12 @@ export default async function MyOrdersPage() {
                           </Link>
                         </TableCell>
                         <TableCell className="px-6 py-4 text-sm font-medium text-stone-900">
-                          {order.unitPriceLabel}
+                          {order.totalPriceLabel}
+                          {order.quantity > 1 && (
+                            <div className="text-xs font-normal text-stone-400">
+                              {order.unitPriceLabel} x {order.quantity}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="px-6 py-4">
                           <Badge variant={orderStatusVariant[order.status] as any} className="font-normal">
@@ -131,21 +138,37 @@ export default async function MyOrdersPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="px-6 py-4">
-                          {order.accountEmail ? (
-                            <div className="flex items-center gap-2 text-sm text-stone-600">
-                              <span className="font-medium text-stone-900">{order.accountEmail}</span>
-                              {order.status === 'completed' && (
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-[10px] uppercase tracking-wider bg-emerald-50 text-emerald-700 border-emerald-100">
-                                    Sẵn sàng
-                                  </Badge>
-                                  <MessagesModal email={order.accountEmail} />
+                          <div className="flex flex-col gap-3">
+                            {order.accounts && order.accounts.length > 0 ? (
+                              order.accounts.map((acc, idx) => (
+                                <div key={idx} className="flex items-center gap-2 text-sm text-stone-600 border-b border-stone-50 pb-2 last:border-0 last:pb-0">
+                                  <span className="font-medium text-stone-900">{acc.email}</span>
+                                  {order.status === 'completed' && (
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="outline" className="text-[10px] uppercase tracking-wider bg-emerald-50 text-emerald-700 border-emerald-100">
+                                        Sẵn sàng
+                                      </Badge>
+                                      <MessagesModal email={acc.email} />
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-stone-400 italic">Đang chờ xử lý</span>
-                          )}
+                              ))
+                            ) : order.accountEmail ? (
+                              <div className="flex items-center gap-2 text-sm text-stone-600">
+                                <span className="font-medium text-stone-900">{order.accountEmail}</span>
+                                {order.status === 'completed' && (
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-[10px] uppercase tracking-wider bg-emerald-50 text-emerald-700 border-emerald-100">
+                                      Sẵn sàng
+                                    </Badge>
+                                    <MessagesModal email={order.accountEmail} />
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-stone-400 italic">Đang chờ xử lý</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="px-6 py-4 text-right text-sm text-stone-500">
                           {order.createdAt}
