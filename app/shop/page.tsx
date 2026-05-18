@@ -36,6 +36,7 @@ export default async function ShopPage() {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/shop" className="text-lg font-bold text-gray-900">GPT Shop</Link>
           <div className="flex items-center gap-4">
+            <Link href="/otp" className="text-sm font-semibold text-amber-600 hover:underline">Lấy OTP</Link>
             {session ? (
               <>
                 <span className="text-sm text-gray-500">{session.username}</span>
